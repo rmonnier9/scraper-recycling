@@ -1,0 +1,16 @@
+pseudo-classe: specifies a special state
+pseudo-element: lets you style a specific part
+
+div, p Selects all <div> elements and all <p> elements
+div p Selects all <p> elements inside <div> elements
+div > p Selects all <p> elements where the parent is a <div> element
+p ~ ul	Selects every <ul> element that are preceded by a <p> element among all children of p
+div + p	Selects all <p> elements that are placed immediately after <div> elements
+[target[^$*]=_blank] Selects all elements with target="_blank" ([] : start, end, substring)
+
+p:not(.intro)
+li:nth-child(3)
+li:nth-last-child(n)
+ul:nth-of-type(n)
+li:only-of-type
+li:first-of-type
