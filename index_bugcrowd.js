@@ -1,8 +1,10 @@
-const { csvFormat } = require('d3-dsv');
 const Nightmare = require('nightmare');
-const { writeFileSync } = require('fs');
+const { csvFormatRows } = require('d3-dsv');
+var json2csv = require('json2csv');
+const { createWriteStream } = require('fs');
 
 const SHOW = false;
+const fields = ['name', 'url', 'description', 'location'];
 
 const getCompanyList = async () => {
   const START = 'https://www.bugcrowd.com/bug-bounty-list/';
@@ -90,41 +92,91 @@ const getCompanyDomainHackerOne = async (url) => {
   }
 }
 
+class SearchCrunchbase {
+  constructor() {
+    this.nightmare = new Nightmare({
+      show: true,
+      waitTimeout: 4000,
+      typeInterval: 500,
+      switches: {
+        'proxy-server': 'free-sg.hide.me',
+        'ignore-certificate-errors': true
+      }
+    })
+    .useragent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')
+    .authentication('bob75017', '1osiris1')
+    .goto('https://www.crunchbase.com/search/organization.companies');
+    // http://useragentstring.com/
+    // https://free-proxy-list.net/
+
+    this.get = async (name) => {
+      try {
+        const result = await this.nightmare
+          .wait('input[id="md-input-1"]')
+          .type('input[id="md-input-1"]', name)
+          .type('body', '\u000d')
+          .wait('.component--image-with-fields-card .field-row')
+          .evaluate(() => {
+            output = { description: '', location: '' };
+            const infos = [...document.querySelectorAll('.component--image-with-fields-card .field-row')].map(el => (el.innerText));
+            output.description = infos[1];
+            output.location = infos[2];
+            return output;
+          })
+        return result;
+      } catch(e) {
+        console.error(e);
+        return { description: '', location: '' };
+      }
+    }
+  }
+}
+
 
 const pipeline = async () => {
   let list = await getCompanyList();
 
+  const stream = createWriteStream('./output.csv');
+  stream.write(fields.join(','));
+  const searchCrunchbase = new SearchCrunchbase();
+  let i = 0;
   list = await list.reduce(async (queue, elem) => {
-    const dataArray = await queue;
+    await queue;
+    console.log(elem);
+
     const { url } = elem;
     const newElem = {...elem};
-    console.log(elem);
-    if (!url) { return dataArray; }
-
-    if (url.match(/bugcrowd\.com/)) {
-      const { domains, description } = await getCompanyDomainBugCrowd(url);
-      newElem.domains = domains;
-      newElem.description = description;
-    } else if (url.match(/hackerone\.com/)) {
-      const { domains, description, infos } = await getCompanyDomainHackerOne(url);
-      newElem.domains = domains;
-      newElem.description = description;
-      newElem.infos = infos;
-    } else if (url.match(/cobalt\.io/)) {
-      newElem.domains = [];
-      newElem.description = '';
-    } else {
-      newElem.domains = [url];
-      newElem.description = '';
-    }
-    dataArray.push(newElem);
-    console.log(newElem)
-    return dataArray;
+    if (!url) { return true; }
+    const infos = await searchCrunchbase.get(elem.name);
+    newElem.location = infos.location;
+    newElem.description = infos.description;
+    // if (url.match(/bugcrowd\.com/)) {
+    //   const { domains, description } = await getCompanyDomainBugCrowd(url);
+    //   newElem.domains = domains;
+    //   newElem.description = description;
+    // } else if (url.match(/hackerone\.com/)) {
+    //   const { domains, description, infos } = await getCompanyDomainHackerOne(url);
+    //   newElem.domains = domains;
+    //   newElem.description = description;
+    //   newElem.infos = infos;
+    // } else if (url.match(/cobalt\.io/)) {
+    //   newElem.domains = [];
+    //   newElem.description = '';
+    // } else {
+    //   newElem.domains = [url];
+    //   newElem.description = '';
+    // }
+    const jsonToArray = [];
+    fields.forEach((field) => { jsonToArray.push(newElem[field] || ''); });
+    console.log(jsonToArray);
+    const csvData = csvFormatRows([jsonToArray]);
+    stream.write(csvData);
+    stream.write('\n');
+    i += 1;
+    return true;
   }, Promise.resolve([]));
-
-  const csvData = csvFormat(list.filter(i => i));
-  writeFileSync('./output.csv', csvData, { encoding: 'utf8' });
-
+  stream.end();
+  console.log(`Done. ${i} rows written.`)
 }
 
 pipeline();
