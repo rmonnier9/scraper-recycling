@@ -2,5 +2,5 @@
 
 ## Quick Start
 
-npm install
-node index_bugcrowd.js
+- npm install
+- npm start
