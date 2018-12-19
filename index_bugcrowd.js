@@ -3,10 +3,10 @@ const { csvFormatRows } = require('d3-dsv');
 const { createWriteStream } = require('fs');
 
 const SHOW = false;
-const fields = ['name', 'domains', 'location', 'creation', 'effectif', 'bourse', 'description' ];
+const fields = ['name', 'url', 'mail', 'phone', 'contactName' ];
 
 const getCompanyList = async () => {
-  const START = 'https://www.bugcrowd.com/bug-bounty-list/';
+  const START = 'http://www.guide-dechets-paca.com/guide-dechets-paca/module/directory/front/free/searchArticle.do;jsessionid=CE785E2D36F8FEB273B50764D1DCD847';
   console.log(`Now gathering companies.`);
   const nightmare = new Nightmare({
     show: SHOW,
@@ -15,12 +15,12 @@ const getCompanyList = async () => {
   try {
     const result = await nightmare
       .goto(START)
-      .wait('.unstriped tbody tr')
       .evaluate(() => {
-        return [...document.querySelectorAll('.unstriped tbody tr')]
+        console.log('evauate')
+        return [...document.querySelectorAll('div.article-list a')]
           .map(el => ({
-            name: el.childNodes[1].childNodes[0].text,
-            url: el.childNodes[1].childNodes[0].href,
+            name: el.childNodes[1].innerText,
+            url: el.href,
           }));
       })
       .end();
@@ -31,7 +31,7 @@ const getCompanyList = async () => {
   }
 }
 
-const getCompanyDomainBugCrowd = async (url) => {
+const getCompanyInfos = async (elem, url) => {
   const nightmare = new Nightmare({
     show: SHOW,
     waitTimeout: 4000,
@@ -39,119 +39,40 @@ const getCompanyDomainBugCrowd = async (url) => {
   try {
     const result = await nightmare
       .goto(url)
-      .wait('.bc-grid')
+      .wait('div.main-layout table tbody > tr > td:nth-child(1) > table > tbody > tr:nth-child(2) > td:nth-child(2) > div:nth-child(4)')
       .evaluate(() => {
-        output = { description: '', domains: [] };
-        output.domains = [...document.querySelectorAll('.bc-target a')].map(el => (el.href));
-
-        element = document.querySelector('.bounty-header-text p')
-        if (element) {
-          output.description = element.firstChild.nodeValue;
+        const div = document.querySelector('div.main-layout table tbody > tr > td:nth-child(1) > table > tbody > tr:nth-child(2) > td:nth-child(2) > div:nth-child(4)')
+        return {
+          contactName: div.childNodes[1].innerText,
+          phone: div.childNodes[3].innerText,
+          mail: div.childNodes[5].innerText,
+          ...elem,
         }
-        return output;
       })
       .end();
     return result;
   } catch(e) {
     console.error(e);
-    return { domains: [], description: '' };
+    return {};
   }
 }
 
-class SearchGoogle {
-  constructor() {
-    this.nightmare = new Nightmare({
-      show: true,
-      waitTimeout: 4000,
-      // typeInterval: 500,
-      // switches: {
-      //   'proxy-server': 'free-sg.hide.me',
-      //   'ignore-certificate-errors': true
-      // }
-    })
-    // .useragent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')
-    // .authentication('bob75017', '1os')
-    .goto('https://www.google.fr/');
-    // http://useragentstring.com/
-    // https://free-proxy-list.net/
-
-    this.get = async (name) => {
-      try {
-        const result = await this.nightmare
-          .wait('input[name="q"]')
-          .type('input[name="q"]', name)
-          .click('button[name="btnG"]')
-          .wait('h3')
-          .evaluate(() => {
-            document.querySelector('input[name="q"]').value = '';
-            output = { description: '' };
-            const description = [...document.querySelectorAll('div#rhs_block > div > div > div > div > div > div > div > div > div > div > div > span')];
-            if (description.length && description[0].innerText.length >= 10) {
-              output.description = description[0].innerText;
-            } else {
-              output.description = document.querySelector('span.st').innerText
-            }
-            const infos = document.querySelectorAll('span:first-child:nth-last-child(2)');
-            const findWithRegexp = (list, toFind) => {
-              let output = '';
-              list.forEach((elem) => {
-                if (elem.innerText.match(new RegExp(toFind))) {
-                  output = elem.nextSibling.innerText;
-                }
-              });
-              return output;
-            }
-            output.location = findWithRegexp(infos, 'Siège social');
-            output.effectif = findWithRegexp(infos, 'Effectif');
-            output.creation = findWithRegexp(infos, 'Création');
-            if (findWithRegexp(infos, 'Cours de l')) {
-              output.bourse = 'Coté en bourse.';
-            } else {
-              output.bourse = '';
-            }
-            return output;
-          })
-        return result;
-      } catch(e) {
-        console.error(e);
-        return { description: '', location: '', effectif: '', creation: '' };
-      }
-    }
-  }
-}
 
 const pipeline = async () => {
   let list = await getCompanyList();
+  console.log(list)
 
   const stream = createWriteStream('./output.csv');
   stream.write(fields.join(','));
   stream.write('\n');
-  const searchGoogle = new SearchGoogle();
   let i = 0;
-  list = await list.reduce(async (queue, elem) => {
-    await queue;
-    console.log(`${elem.name} is being processed.`);
-
+  list.map((elem) => {
     const { url } = elem;
-    const newElem = {...elem};
     if (!url) { return true; }
-    const infos = await searchGoogle.get(elem.name);
-    newElem.location = infos.location;
-    newElem.description = infos.description;
-    newElem.effectif = infos.effectif;
-    newElem.creation = infos.creation;
-    if (url.match(/bugcrowd\.com/)) {
-      const { domains, description } = await getCompanyDomainBugCrowd(url);
-      newElem.domains = domains;
-      newElem.description = description;
-    } else if (url.match(/hackerone\.com/)) {
-      newElem.domains = [];
-    } else if (url.match(/cobalt\.io/)) {
-      newElem.domains = [];
-    } else {
-      newElem.domains = [url];
-    }
-    console.log(newElem)
+    return getCompanyInfos(elem, url);
+  })
+  Promise.all(list)
+  list.forEach((elem) => {
     const jsonToArray = [];
     fields.forEach((field) => { jsonToArray.push(newElem[field] || ''); });
     // console.log(jsonToArray);
@@ -159,10 +80,28 @@ const pipeline = async () => {
     stream.write(csvData);
     stream.write('\n');
     i += 1;
-    return true;
-  }, Promise.resolve([]));
-  stream.end();
+  })
   console.log(`Done. ${i} rows written.`)
+  // list = await list.reduce(async (queue, elem) => {
+  //   await queue;
+  //   console.log(`${elem.name} is being processed.`);
+
+  //   const { url } = elem;
+  //   if (!url) { return true; }
+  //   const infos = await getCompanyInfos(url);
+  //   const newElem = {...elem, ...infos};
+  //   console.log(newElem)
+  //   const jsonToArray = [];
+  //   fields.forEach((field) => { jsonToArray.push(newElem[field] || ''); });
+  //   // console.log(jsonToArray);
+  //   const csvData = csvFormatRows([jsonToArray]);
+  //   stream.write(csvData);
+  //   stream.write('\n');
+  //   i += 1;
+  //   return true;
+  // }, Promise.resolve([]));
+  // stream.end();
+  // console.log(`Done. ${i} rows written.`)
 }
 
 pipeline();
