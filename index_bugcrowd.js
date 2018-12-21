@@ -70,11 +70,14 @@ const pipeline = async () => {
     const { url } = elem;
     if (!url) { return true; }
     return getCompanyInfos(elem, url);
+    console.log(elem)
   })
+  console.log(list)
+  return;
   Promise.all(list)
   list.forEach((elem) => {
     const jsonToArray = [];
-    fields.forEach((field) => { jsonToArray.push(newElem[field] || ''); });
+    fields.forEach((field) => { jsonToArray.push(elem[field] || ''); });
     // console.log(jsonToArray);
     const csvData = csvFormatRows([jsonToArray]);
     stream.write(csvData);
