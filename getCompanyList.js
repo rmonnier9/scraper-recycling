@@ -1,29 +1,26 @@
-const Nightmare = require('nightmare');
+'use strict';
+
+const puppeteer = require('puppeteer');
 const SHOW = false;
 
 const getCompanyList = async () => {
-    const START = 'http://www.guide-dechets-paca.com/guide-dechets-paca/module/directory/front/free/searchArticle.do;jsessionid=CE785E2D36F8FEB273B50764D1DCD847';
+    const url = 'http://www.guide-dechets-paca.com/guide-dechets-paca/module/directory/front/free/searchArticle.do;jsessionid=CE785E2D36F8FEB273B50764D1DCD847';
+    const selector = 'div.article-list a';
+
     console.log(`Now gathering companies.`);
-    const nightmare = new Nightmare({
-      show: SHOW,
-      waitTimeout: 4000,
-    });
-    try {
-      const result = await nightmare
-        .goto(START)
-        .evaluate(() => {
-          return [...document.querySelectorAll('div.article-list a')]
-            .map(el => ({
-              name: el.childNodes[1].innerText,
-              url: el.href,
-            }));
-        })
-        .end();
-      return result;
-    } catch(e) {
-      console.error(e);
-      return undefined;
-    }
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+  
+    await page.goto(url);
+    const result = await page.evaluate((s) => {
+      return [...document.querySelectorAll(s)]
+        .map(el => ({
+          name: el.childNodes[1].innerText,
+          url: el.href,
+        }));
+    }, selector);
+    await browser.close();
+    return result;
   }
 
   module.exports = getCompanyList;

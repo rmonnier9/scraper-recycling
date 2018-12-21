@@ -1,84 +1,84 @@
 'use strict';
 
-const Nightmare = require('nightmare');
-const { csvFormatRows } = require('d3-dsv');
-const { createWriteStream } = require('fs');
+const puppeteer = require('puppeteer');
+const d3 = require('d3-dsv');
+const fs = require('fs');
 const getCompanyList = require('./getCompanyList');
-const saveToCSV = require('./saveToCSV');
+// const saveToCSV = require('./saveToCSV');
 const prompt = require('./prompt');
 
-prompt('Do you want to refresh the company list ? (y/n)')
-  .then((answer) => {
-    if (answer === 'y') {
-      getCompanyList().then((result) => {
-        return saveToCSV('listofurl', result);
-      })
-    } else if (answer === 'n') {
-      console.log('this is a no...')
-    } else {
-      console.log('I dont understand')
-    }
-  })
-
-getCompanyList().then((result) => {
-  return saveToCSV('listofurl', result);
-})
 const SHOW = false;
-const fields = ['name', 'url', 'mail', 'phone', 'contactName' ];
 
-const getCompanyInfos = async (elem, url) => {
-  const nightmare = new Nightmare({
-    show: SHOW,
-    waitTimeout: 4000,
-  });
-  try {
-    const result = await nightmare
-      .goto(url)
-      .wait('div.main-layout table tbody > tr > td:nth-child(1) > table > tbody > tr:nth-child(2) > td:nth-child(2) > div:nth-child(4)')
-      .evaluate(() => {
-        const div = document.querySelector('div.main-layout table tbody > tr > td:nth-child(1) > table > tbody > tr:nth-child(2) > td:nth-child(2) > div:nth-child(4)')
-        return {
-          contactName: div.childNodes[1].innerText,
-          phone: div.childNodes[3].innerText,
-          mail: div.childNodes[5].innerText,
-          ...elem,
-        }
-      })
-      .end();
-    return result;
-  } catch(e) {
-    console.error(e);
-    return {};
-  }
+const getCompanyInfos = async (url, elem) => {
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  const selector = 'div.main-layout table tbody > tr > td:nth-child(1) > table > tbody > tr:nth-child(2) > td:nth-child(2) > div:nth-child(4)';
+
+  await page.goto(url);
+  await page.waitFor(selector);
+  const result = await page.evaluate((s) => {
+    const div = document.querySelector(s)
+    return {
+      contactName: div.childNodes[1].innerText,
+      phone: div.childNodes[3].innerText,
+      mail: div.childNodes[5].innerText,
+    }
+  }, selector)
+  await browser.close();
+  return { ...result, ...elem };
 }
 
+prompt('Do you want to refresh the company list ?')
+.then((response) => {
+  if (response === 'y') {
+    return getCompanyList()
+    .then((result) => {
+      const stream = fs.createWriteStream('./output.csv');
+      const csv = d3.csvFormat(result);
 
-const pipeline = async () => {
-  let list = await getCompanyList();
-  console.log(list)
-
-  const stream = createWriteStream('./output.csv');
+      stream.write(csv);
+      stream.end();
+      return result;
+    })
+  } else {
+    const csv = fs.readFileSync('./output.csv', 'utf8')
+    const result = d3.csvParse(csv);
+    return result;
+  }
+})
+.then(async (list) => {
+  const fields = [ 'name', 'url', 'mail', 'phone', 'contactName' ];
+  const stream = fs.createWriteStream('./companyInfos.csv');
   stream.write(fields.join(','));
   stream.write('\n');
-  let i = 0;
-  list.map((elem) => {
-    const { url } = elem;
-    if (!url) { return true; }
-    return getCompanyInfos(elem, url);
-    console.log(elem)
-  })
-  console.log(list)
-  return;
-  Promise.all(list)
-  list.forEach((elem) => {
+  const writeElem = (elem) => {
     const jsonToArray = [];
     fields.forEach((field) => { jsonToArray.push(elem[field] || ''); });
-    // console.log(jsonToArray);
-    const csvData = csvFormatRows([jsonToArray]);
+    const csvData = d3.csvFormatRows([jsonToArray]);
     stream.write(csvData);
     stream.write('\n');
-    i += 1;
-  })
-}
+  }
 
-// pipeline();
+
+  const result = [];
+  let i = 0;
+
+  await list.reduce(async (queue, elem) => {
+    await queue;
+    console.log(`${elem.name} is being processed.`);
+
+    const { url } = elem;
+    if (!url) { return true; }
+    try {
+      const infos = await getCompanyInfos(url, elem);
+      const newElem = {...elem, ...infos};
+      writeElem(newElem);
+      i += 1;
+      return true;
+    } catch(e) {
+      writeElem(elem);
+      return true;
+    }
+  }, Promise.resolve([]));
+
+})
