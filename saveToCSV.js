@@ -11,15 +11,6 @@ const saveToCSV = async (filename, list) => {
     // stream.write('\n');
     let i = 0;
     stream.write(d3.csvFormat(list))
-    // list.forEach((elem) => {
-    //     const jsonToArray = [];
-    //     fields.forEach((field) => { jsonToArray.push(elem[field] || ''); });
-    //     const csvData = csvFormatRows([jsonToArray]);
-    //     stream.write(csvData);
-    //     stream.write('\n');
-    //     i += 1;
-    // })
-    // console.log(`${i} rows have been written into ${filename}\n`)
 }
 
   module.exports = saveToCSV;
